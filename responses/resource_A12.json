@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "resource": {
+    "id": "A12",
+    "type": "resource",
+    "name": "Sample Resource A12",
+    "metadata": {
+      "created": "2024-01-01T00:00:00.000Z",
+      "version": "1.0"
+    }
+  }
+}
