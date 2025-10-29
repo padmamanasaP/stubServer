@@ -38,6 +38,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Extract category from URL path (e.g., /api/user -> user, /api/order -> order)
+function extractCategory(req) {
+  const urlPath = req.path || req.originalUrl.split('?')[0];
+  
+  // Remove leading slash and split
+  const segments = urlPath.replace(/^\/+/, '').split('/');
+  
+  // If path starts with 'api', take the segment after it
+  if (segments.length > 0 && segments[0].toLowerCase() === 'api') {
+    return segments.length > 1 ? segments[1] : null;
+  }
+  
+  // Otherwise, take the first segment
+  return segments.length > 0 && segments[0] ? segments[0] : null;
+}
+
 // Extract lookup value from different sources
 function extractLookupValue(req, lookupField) {
   // For GET requests, check query parameters
@@ -46,6 +62,7 @@ function extractLookupValue(req, lookupField) {
            req.query.user_id || 
            req.query.order_id || 
            req.query.resource_id ||
+           req.query.payment_id ||
            req.query.id;
   }
 
@@ -55,6 +72,7 @@ function extractLookupValue(req, lookupField) {
            req.body.user_id ||
            req.body.order_id ||
            req.body.resource_id ||
+           req.body.payment_id ||
            req.body.id;
   }
 
@@ -63,29 +81,33 @@ function extractLookupValue(req, lookupField) {
          req.query.user_id ||
          req.query.order_id ||
          req.query.resource_id ||
+         req.query.payment_id ||
          req.query.id;
 }
 
 // Generic handler for all methods
 function handleRequest(req, res) {
   const lookupValue = extractLookupValue(req, config.lookupField);
+  const category = extractCategory(req);
   
   logger.debug('Processing request', {
     method: req.method,
     url: req.originalUrl,
     lookupField: config.lookupField,
     lookupValue,
+    category,
     body: req.body,
     query: req.query,
   });
 
-  const response = responseManager.getResponse(lookupValue);
+  const response = responseManager.getResponse(lookupValue, category);
   
   logger.info('Response determined', {
     method: req.method,
     url: req.originalUrl,
     lookupValue,
-    responseFile: responseManager.getResponseFile(lookupValue),
+    category,
+    responseFile: responseManager.getResponseFile(lookupValue, category),
   });
 
   // Add response time simulation if needed (for performance testing)
@@ -99,12 +121,7 @@ function handleRequest(req, res) {
   }
 }
 
-// Route handlers
-app.get('*', handleRequest);
-app.post('*', handleRequest);
-app.delete('*', handleRequest);
-
-// Health check endpoint
+// Health check endpoint (must be before wildcard routes)
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
@@ -116,6 +133,11 @@ app.get('/health', (req, res) => {
     },
   });
 });
+
+// Route handlers
+app.get('*', handleRequest);
+app.post('*', handleRequest);
+app.delete('*', handleRequest);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -160,17 +182,21 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Start server
-const server = app.listen(config.port, () => {
-  logger.info('Stub Test Server started', {
-    port: config.port,
-    responseDir: config.responseDir,
-    lookupField: config.lookupField,
-    defaultResponse: config.defaultResponse,
-    environment: process.env.NODE_ENV || 'development',
-  });
-  
-  console.log(`
+// Start server only if this file is run directly (not imported)
+const isMainModule = import.meta.url === `file://${process.argv[1]}` || 
+                     import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+
+if (isMainModule) {
+  const server = app.listen(config.port, () => {
+    logger.info('Stub Test Server started', {
+      port: config.port,
+      responseDir: config.responseDir,
+      lookupField: config.lookupField,
+      defaultResponse: config.defaultResponse,
+      environment: process.env.NODE_ENV || 'development',
+    });
+    
+    console.log(`
 ╔════════════════════════════════════════════════════════╗
 ║         Stub Test Server - Running                    ║
 ╠════════════════════════════════════════════════════════╣
@@ -183,7 +209,8 @@ const server = app.listen(config.port, () => {
 Server is ready to accept requests!
 Health check: http://localhost:${config.port}/health
   `);
-});
+  });
+}
 
 export default app;
 

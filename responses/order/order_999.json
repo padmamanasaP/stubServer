@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "order": {
+    "id": "999",
+    "user_id": "123",
+    "items": [
+      {
+        "product_id": "prod_001",
+        "quantity": 2,
+        "price": 29.99
+      }
+    ],
+    "total": 59.98,
+    "status": "pending"
+  }
+}
