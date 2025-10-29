@@ -34,7 +34,12 @@ npm install
 cp .env.example .env
 ```
 
-4. Start the server:
+4. Run tests to verify installation:
+```bash
+npm test
+```
+
+5. Start the server:
 ```bash
 npm start
 ```
