@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "payment": {
+    "id": "555",
+    "order_id": "999",
+    "amount": 59.98,
+    "method": "credit_card",
+    "status": "completed",
+    "transaction_id": "txn_555_123456",
+    "processed_at": "2024-01-03T10:30:00.000Z"
+  }
+}
+

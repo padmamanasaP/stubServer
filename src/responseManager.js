@@ -15,7 +15,10 @@ export class ResponseManager {
     this.cache = new Map();
     this.watcher = null;
     this.initializeDirectory();
-    this.startWatching();
+    // Only start watching if not in test mode (to allow tests to exit)
+    if (process.env.NODE_ENV !== 'test') {
+      this.startWatching();
+    }
   }
 
   initializeDirectory() {
@@ -70,14 +73,51 @@ export class ResponseManager {
     }
   }
 
-  getResponseFile(lookupValue) {
+  getResponseFile(lookupValue, category = null) {
     if (!lookupValue) {
+      // If category exists and has a default, use it, otherwise use global default
+      if (category) {
+        const sanitizedCategory = String(category).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const categoryDir = path.join(this.responseDir, sanitizedCategory);
+        const categoryDefaultPath = path.join(categoryDir, this.defaultResponse);
+        if (fs.existsSync(categoryDir) && fs.statSync(categoryDir).isDirectory() && 
+            fs.existsSync(categoryDefaultPath)) {
+          return path.join(sanitizedCategory, this.defaultResponse);
+        }
+      }
       return this.defaultResponse;
     }
 
     // Sanitize lookup value to prevent directory traversal
     const sanitized = String(lookupValue).replace(/[^a-zA-Z0-9_-]/g, '_');
     
+    // If category is provided, try hierarchical lookup first
+    if (category) {
+      const sanitizedCategory = String(category).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const categoryDir = path.join(this.responseDir, sanitizedCategory);
+      
+      // Check if category directory exists
+      if (fs.existsSync(categoryDir) && fs.statSync(categoryDir).isDirectory()) {
+        // Try to find specific file in category directory
+        const categoryResponseFile = this._findFileInDirectory(categoryDir, sanitized);
+        if (categoryResponseFile) {
+          return path.join(sanitizedCategory, categoryResponseFile);
+        }
+        
+        // Try category-level default
+        const categoryDefaultPath = path.join(categoryDir, this.defaultResponse);
+        if (fs.existsSync(categoryDefaultPath)) {
+          return path.join(sanitizedCategory, this.defaultResponse);
+        }
+        // Category directory exists but no matching file - return category default path
+        // (will fall back to global default in getResponse if file doesn't exist)
+        return path.join(sanitizedCategory, this.defaultResponse);
+      }
+      // If category directory doesn't exist, return global default (AC4)
+      return this.defaultResponse;
+    }
+    
+    // Fallback to flat lookup for backward compatibility
     // Try exact match first
     let responseFile = `${sanitized}.json`;
     let responsePath = path.join(this.responseDir, responseFile);
@@ -118,6 +158,39 @@ export class ResponseManager {
     return this.defaultResponse;
   }
 
+  _findFileInDirectory(directory, sanitizedValue) {
+    // Derive prefix from lookup field name if it contains underscore
+    let derivedPrefix = null;
+    if (this.lookupField && this.lookupField.includes('_')) {
+      derivedPrefix = this.lookupField.split('_')[0] + '_';
+    }
+
+    // Build patterns: derived prefix, common prefixes, and exact match
+    const patterns = [];
+    
+    if (derivedPrefix) {
+      patterns.push(`${derivedPrefix}${sanitizedValue}.json`);
+    }
+    
+    // Add common patterns
+    patterns.push(
+      `user_${sanitizedValue}.json`,
+      `order_${sanitizedValue}.json`,
+      `payment_${sanitizedValue}.json`,
+      `resource_${sanitizedValue}.json`,
+      `${sanitizedValue}.json`
+    );
+
+    for (const pattern of patterns) {
+      const testPath = path.join(directory, pattern);
+      if (fs.existsSync(testPath)) {
+        return pattern;
+      }
+    }
+
+    return null;
+  }
+
   loadResponse(filename) {
     // Check cache first
     if (this.cache.has(filename)) {
@@ -152,19 +225,43 @@ export class ResponseManager {
     }
   }
 
-  getResponse(lookupValue) {
-    const filename = this.getResponseFile(lookupValue);
+  getResponse(lookupValue, category = null) {
+    const filename = this.getResponseFile(lookupValue, category);
     const response = this.loadResponse(filename);
     
-    if (!response && filename !== this.defaultResponse) {
+    // If response was loaded successfully, return it
+    if (response) {
+      return response;
+    }
+    
+    // If response failed to load and it's not already a default file, try fallbacks
+    const isDefaultFile = filename === this.defaultResponse || 
+                         (category && filename === path.join(category, this.defaultResponse));
+    
+    if (!isDefaultFile) {
       // Fallback to default if specific file failed
       this.logger.debug('Falling back to default response', {
-        requested: filename
+        requested: filename,
+        category
       });
-      return this.loadResponse(this.defaultResponse);
+      
+      // Try category default first if category exists
+      if (category) {
+        const categoryDefault = path.join(category, this.defaultResponse);
+        const categoryResponse = this.loadResponse(categoryDefault);
+        if (categoryResponse) {
+          return categoryResponse;
+        }
+      }
+      
+      // Fallback to global default
+      const globalDefault = this.loadResponse(this.defaultResponse);
+      if (globalDefault) {
+        return globalDefault;
+      }
     }
 
-    return response || {
+    return {
       status: 'error',
       message: 'No response file available'
     };
