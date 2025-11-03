@@ -6,6 +6,8 @@ A dynamic stub test server for simulating backend API endpoints. It responds to 
 
 - ✅ **Multiple HTTP Methods**: Supports GET, POST, and DELETE requests
 - ✅ **Dynamic Response Mapping**: Maps requests to response files based on field values or query parameters
+- ✅ **Response Templating**: Dynamic placeholder replacement with request data
+- ✅ **Delay Simulation**: Configurable response delays for realistic API testing
 - ✅ **Hot Reload**: Automatically reflects file changes without server restart
 - ✅ **Flexible Configuration**: Environment variable-based configuration
 - ✅ **Comprehensive Logging**: JSON-structured logs with timestamps
@@ -153,15 +155,124 @@ Each response file must be a valid JSON object. Example:
 
 ## Advanced Features
 
-### Response Delay Simulation
+### Response Templating
 
-Add `_delay` query parameter to simulate latency:
+The server supports dynamic response templating, allowing you to create reusable response templates with placeholders that are replaced with actual request data at runtime.
 
-```bash
-curl "http://localhost:3000/api/user?user_id=123&_delay=100"
+#### Template Syntax
+
+Use `{{request.fieldName}}` placeholders in your response JSON files. The server will replace these with values from the incoming request (query parameters or body).
+
+#### Example Template File
+
+Create a response file with templates (e.g., `responses/transaction/transaction_TXN12345.json`):
+
+```json
+{
+  "transactionId": "{{request.transactionId}}",
+  "status": "SUCCESS",
+  "message": "Transaction {{request.transactionType}} processed successfully",
+  "amount": "{{request.amount}}",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
 ```
 
-This will delay the response by 100ms (max 5000ms).
+#### Making a Request
+
+```bash
+curl -X POST http://localhost:3000/api/transaction \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "TXN12345",
+    "transactionType": "CREDIT",
+    "amount": "100.00"
+  }'
+```
+
+#### Response
+
+```json
+{
+  "transactionId": "TXN12345",
+  "status": "SUCCESS",
+  "message": "Transaction CREDIT processed successfully",
+  "amount": "100.00",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Nested Field Access
+
+Templates support dot notation for nested fields:
+
+```json
+{
+  "userId": "{{request.user.id}}",
+  "userName": "{{request.user.name}}"
+}
+```
+
+#### Missing Placeholders
+
+If a placeholder references a field that doesn't exist in the request, it will be left unchanged in the response:
+
+```json
+{
+  "message": "{{request.missingField}}"
+}
+```
+
+### Response Delay Simulation
+
+The server supports two methods for simulating API latency:
+
+#### Method 1: Query Parameter (Per-Request)
+
+Add `_delay` query parameter to simulate latency for a specific request:
+
+```bash
+curl "http://localhost:3000/api/user?user_id=123&_delay=500"
+```
+
+This will delay the response by 500ms (max 5000ms). Query parameter delays override config-based delays.
+
+#### Method 2: Configuration File (Category-Wide)
+
+Create a `config.json` file in any response category directory to apply a consistent delay to all responses in that category:
+
+**File: `responses/transaction/config.json`**
+```json
+{
+  "delay": 1500
+}
+```
+
+This will apply a 1500ms delay to all transaction responses. The delay is applied automatically without requiring query parameters.
+
+#### Delay Priority
+
+1. Query parameter `_delay` (highest priority)
+2. Category `config.json` delay
+3. No delay (default)
+
+#### Example: Category with Delay
+
+```bash
+# Directory structure
+responses/
+├── transaction/
+│   ├── config.json          # {"delay": 1500}
+│   ├── transaction_TXN123.json
+│   └── default.json
+
+# Request (will have 1500ms delay)
+curl -X POST http://localhost:3000/api/transaction \
+  -d '{"transactionId": "TXN123"}'
+
+# Override with query parameter (will have 500ms delay instead)
+curl -X POST "http://localhost:3000/api/transaction?_delay=500" \
+  -d '{"transactionId": "TXN123"}'
+```
 
 ### Health Check Endpoint
 

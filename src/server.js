@@ -63,6 +63,8 @@ function extractLookupValue(req, lookupField) {
            req.query.order_id || 
            req.query.resource_id ||
            req.query.payment_id ||
+           req.query.transaction_id ||
+           req.query.transactionId ||
            req.query.id;
   }
 
@@ -73,6 +75,8 @@ function extractLookupValue(req, lookupField) {
            req.body.order_id ||
            req.body.resource_id ||
            req.body.payment_id ||
+           req.body.transaction_id ||
+           req.body.transactionId ||
            req.body.id;
   }
 
@@ -82,6 +86,8 @@ function extractLookupValue(req, lookupField) {
          req.query.order_id ||
          req.query.resource_id ||
          req.query.payment_id ||
+         req.query.transaction_id ||
+         req.query.transactionId ||
          req.query.id;
 }
 
@@ -89,6 +95,11 @@ function extractLookupValue(req, lookupField) {
 function handleRequest(req, res) {
   const lookupValue = extractLookupValue(req, config.lookupField);
   const category = extractCategory(req);
+  
+  const requestData = {
+    ...req.query,
+    ...(req.body && typeof req.body === 'object' ? req.body : {})
+  };
   
   logger.debug('Processing request', {
     method: req.method,
@@ -100,7 +111,7 @@ function handleRequest(req, res) {
     query: req.query,
   });
 
-  const response = responseManager.getResponse(lookupValue, category);
+  const { response, delay: configDelay } = responseManager.getResponse(lookupValue, category, requestData);
   
   logger.info('Response determined', {
     method: req.method,
@@ -110,12 +121,18 @@ function handleRequest(req, res) {
     responseFile: responseManager.getResponseFile(lookupValue, category),
   });
 
-  // Add response time simulation if needed (for performance testing)
-  const delay = parseInt(req.query._delay || '0', 10);
-  if (delay > 0 && delay < 5000) {
+  const queryDelay = parseInt(req.query._delay || '0', 10);
+  const effectiveDelay = queryDelay > 0 && queryDelay < 5000 ? queryDelay : configDelay;
+  
+  if (effectiveDelay > 0) {
+    logger.debug('Applying response delay', {
+      delay: effectiveDelay,
+      source: queryDelay > 0 ? 'query parameter' : 'config.json'
+    });
+    
     setTimeout(() => {
       res.status(200).json(response);
-    }, delay);
+    }, effectiveDelay);
   } else {
     res.status(200).json(response);
   }
